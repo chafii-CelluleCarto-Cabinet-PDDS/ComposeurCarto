@@ -240,6 +240,7 @@ const BOARD_PAN_ENABLED = true;
 let zoomLevel = ZOOM_BASELINE;
 let selectedLayerId = "title-base";
 let selectedLayerIds = new Set(["title-base"]);
+let selectedTitleTextTarget = "title";
 let interaction = null;
 let mapImageDataUrl = "";
 let customIndex = 0;
@@ -1855,6 +1856,7 @@ function snapshotState() {
     collapsedLayerGroups: [...collapsedLayerGroups],
     selectedLayerId,
     selectedLayerIds: [...selectedLayerIds],
+    selectedTitleTextTarget,
     customIndex,
     titleInput: titleInput.value,
     subtitleInput: subtitleInput.value,
@@ -1885,6 +1887,9 @@ function snapshotState() {
             bgTransparent: element.dataset.bgTransparent === "true",
             borderTransparent: element.dataset.borderTransparent === "true",
           }
+          : null,
+        subtitleTextStyle: layer.id === "title-base"
+          ? getSubtitleStyleState()
           : null,
         shapeStyle: element && isShapeStyleLayer(layer)
           ? {
@@ -2039,6 +2044,9 @@ function restoreState(state) {
         if (layerState.textStyle && isTextStyleLayer(layerState)) {
           initializeTextStyleState(layerState.id, layerState.textStyle);
         }
+        if (layerState.id === "title-base" && layerState.subtitleTextStyle) {
+          initializeSubtitleStyleState(layerState.subtitleTextStyle);
+        }
         if (layerState.shapeStyle && isShapeStyleLayer(layerState)) {
           if (layerState.shapeStyle.shapeType) {
             element.dataset.shapeType = layerState.shapeStyle.shapeType;
@@ -2082,6 +2090,7 @@ function restoreState(state) {
     customIndex = Number.isFinite(restoredCustomIndex)
       ? restoredCustomIndex
       : inferCustomIndexFromLayerIds(state.layers);
+    selectedTitleTextTarget = state.selectedTitleTextTarget === "subtitle" ? "subtitle" : "title";
     selectedLayerIds = new Set(state.selectedLayerIds && state.selectedLayerIds.length ? state.selectedLayerIds : [state.selectedLayerId || "title-base"]);
 
     boardGrid.classList.toggle("is-hidden", state.gridHidden);
@@ -2101,7 +2110,7 @@ function restoreState(state) {
       });
       refreshSelectedControls();
     } else {
-      selectLayer(state.selectedLayerId || "title-base");
+      selectLayer(state.selectedLayerId || "title-base", { titleTextTarget: selectedTitleTextTarget });
     }
   } finally {
     isRestoringHistory = false;
@@ -2216,8 +2225,24 @@ function setBoardText(target, value, fallback, options = {}) {
   target.textContent = safeValue || fallback;
 }
 
+function getSubtitleTextNodeFromElement(element) {
+  return element?.querySelector("#boardSubtitle, .board-title-banner__text p") || null;
+}
+
+function isSubtitleSelectionActive() {
+  return !legendSelection
+    && selectedLayerId === "title-base"
+    && selectedLayerIds.size === 1
+    && selectedTitleTextTarget === "subtitle";
+}
+
 function getTitleSubtitleNode(element) {
-  return null;
+  if (!element) {
+    return null;
+  }
+  return isSubtitleSelectionActive()
+    ? getSubtitleTextNodeFromElement(element)
+    : element.querySelector("h2");
 }
 
 function getSourceTextNode(element) {
@@ -2434,6 +2459,100 @@ function getDefaultTitleStyleForCurrentFormat() {
   return getDefaultTextStyle("title");
 }
 
+function getDefaultSubtitleStyleForCurrentFormat() {
+  const titleDefaults = getDefaultTitleStyleForCurrentFormat();
+  return {
+    fontSize: clamp(Math.round(Number(titleDefaults.fontSize || 17) * 0.52), 10, 22),
+    textColor: "#161616",
+    backgroundColor: "#ffffff",
+    borderColor: "#ffffff",
+    fontFamily: "Marianne, Arial, sans-serif",
+    fontWeight: "600",
+    fontStyle: "normal",
+    bgTransparent: true,
+    borderTransparent: true,
+  };
+}
+
+function initializeSubtitleStyleState(overrides = {}) {
+  const element = getElementByLayerId("title-base");
+  const subtitleNode = getSubtitleTextNodeFromElement(element);
+  if (!element || !subtitleNode) {
+    return;
+  }
+
+  const defaults = { ...getDefaultSubtitleStyleForCurrentFormat(), ...overrides };
+  element.dataset.subtitleFontSize = String(defaults.fontSize);
+  element.dataset.subtitleTextColor = defaults.textColor;
+  element.dataset.subtitleTextBackground = defaults.backgroundColor;
+  element.dataset.subtitleTextBorderColor = defaults.borderColor;
+  element.dataset.subtitleTextFontFamily = defaults.fontFamily;
+  element.dataset.subtitleTextFontWeight = String(defaults.fontWeight);
+  element.dataset.subtitleTextFontStyle = defaults.fontStyle;
+  element.dataset.subtitleBgTransparent = defaults.bgTransparent ? "true" : "false";
+  element.dataset.subtitleBorderTransparent = defaults.borderTransparent ? "true" : "false";
+  syncSubtitleStylePresentation();
+}
+
+function getSubtitleStyleState() {
+  const element = getElementByLayerId("title-base");
+  const subtitleNode = getSubtitleTextNodeFromElement(element);
+  if (!element || !subtitleNode) {
+    return null;
+  }
+
+  const defaults = getDefaultSubtitleStyleForCurrentFormat();
+  return {
+    fontSize: Number(element.dataset.subtitleFontSize || defaults.fontSize),
+    textColor: element.dataset.subtitleTextColor || defaults.textColor,
+    backgroundColor: element.dataset.subtitleTextBackground || defaults.backgroundColor,
+    borderColor: element.dataset.subtitleTextBorderColor || defaults.borderColor,
+    fontFamily: element.dataset.subtitleTextFontFamily || defaults.fontFamily,
+    fontWeight: element.dataset.subtitleTextFontWeight || defaults.fontWeight,
+    fontStyle: element.dataset.subtitleTextFontStyle || defaults.fontStyle,
+    bgTransparent: (element.dataset.subtitleBgTransparent || String(defaults.bgTransparent)) === "true",
+    borderTransparent: (element.dataset.subtitleBorderTransparent || String(defaults.borderTransparent)) === "true",
+  };
+}
+
+function syncSubtitleStylePresentation() {
+  const element = getElementByLayerId("title-base");
+  const subtitleNode = getSubtitleTextNodeFromElement(element);
+  const styleState = getSubtitleStyleState();
+  if (!element || !subtitleNode || !styleState) {
+    return;
+  }
+
+  setInlineStyle(subtitleNode, "font-family", styleState.fontFamily);
+  setInlineStyle(subtitleNode, "font-weight", String(styleState.fontWeight));
+  setInlineStyle(subtitleNode, "font-style", styleState.fontStyle);
+  setInlineStyle(subtitleNode, "font-size", `${styleState.fontSize}px`);
+  setInlineStyle(subtitleNode, "line-height", String(clamp(1.05 + styleState.fontSize / 180, 1.05, 1.32)));
+  setInlineStyle(subtitleNode, "color", styleState.textColor);
+}
+
+function applySubtitleStyles(nextStyle = {}) {
+  const element = getElementByLayerId("title-base");
+  const subtitleNode = getSubtitleTextNodeFromElement(element);
+  if (!element || !subtitleNode) {
+    return;
+  }
+
+  const currentStyle = getSubtitleStyleState();
+  const mergedStyle = { ...currentStyle, ...nextStyle };
+  element.dataset.subtitleFontSize = String(mergedStyle.fontSize);
+  element.dataset.subtitleTextColor = mergedStyle.textColor;
+  element.dataset.subtitleTextBackground = mergedStyle.backgroundColor;
+  element.dataset.subtitleTextBorderColor = mergedStyle.borderColor;
+  element.dataset.subtitleTextFontFamily = mergedStyle.fontFamily;
+  element.dataset.subtitleTextFontWeight = String(mergedStyle.fontWeight);
+  element.dataset.subtitleTextFontStyle = mergedStyle.fontStyle;
+  element.dataset.subtitleBgTransparent = mergedStyle.bgTransparent ? "true" : "false";
+  element.dataset.subtitleBorderTransparent = mergedStyle.borderTransparent ? "true" : "false";
+  syncSubtitleStylePresentation();
+  refreshSelectedControls();
+}
+
 function initializeTextStyleState(layerId, overrides = {}) {
   const layer = getLayer(layerId);
   const element = getElementByLayerId(layerId);
@@ -2455,6 +2574,13 @@ function initializeTextStyleState(layerId, overrides = {}) {
     element.dataset.rotation = layer.type === "source" ? "180" : "0";
   }
   syncElementTextStylePresentation(layerId);
+  if (layer.type === "title") {
+    if (!element.dataset.subtitleFontSize) {
+      initializeSubtitleStyleState();
+    } else {
+      syncSubtitleStylePresentation();
+    }
+  }
 }
 
 function getTextStyleState(layerId) {
@@ -2504,9 +2630,7 @@ function syncElementTextStylePresentation(layerId) {
 
   if (layer.type === "title") {
     setInlineStyle(element, "--carto-title-font-size", `${styleState.fontSize}px`);
-    setInlineStyle(element, "--carto-subtitle-font-size", `${clamp(styleState.fontSize * 0.52, 10, 22)}px`);
     const titleNode = element.querySelector("h2");
-    const subtitleNode = element.querySelector("#boardSubtitle, .board-title-banner__text p");
 
     setInlineStyle(element, "font-family", styleState.fontFamily);
     setInlineStyle(element, "color", styleState.textColor);
@@ -2520,9 +2644,7 @@ function syncElementTextStylePresentation(layerId) {
     setInlineStyle(titleNode, "font-size", `${styleState.fontSize}px`);
     setInlineStyle(titleNode, "line-height", String(clamp(1.02 + styleState.fontSize / 180, 1.02, 1.22)));
     setInlineStyle(titleNode, "color", styleState.textColor);
-    setInlineStyle(subtitleNode, "font-family", styleState.fontFamily);
-    setInlineStyle(subtitleNode, "font-style", styleState.fontStyle);
-    setInlineStyle(subtitleNode, "color", styleState.textColor);
+    syncSubtitleStylePresentation();
   }
 
   if (layer.type === "source") {
@@ -2799,6 +2921,7 @@ function formatNumberControlValue(value) {
 function clearSelection() {
   selectedLayerId = "";
   selectedLayerIds = new Set();
+  selectedTitleTextTarget = "title";
   legendSelection = null;
   board.querySelectorAll("[data-layer-id]").forEach((element) => {
     element.classList.remove("is-selected");
@@ -2979,11 +3102,7 @@ function endTouchViewportPointer(event) {
 }
 
 function supportsTouchKeyboardUi() {
-  try {
-    return window.matchMedia("(pointer: coarse)").matches || Number(navigator.maxTouchPoints || 0) > 0;
-  } catch (error) {
-    return false;
-  }
+  return true;
 }
 
 function mountTouchKeyboardToFullscreenHost() {
@@ -3597,9 +3716,14 @@ function initializeMouseViewportControls() {
 }
 
 function selectLayer(layerId, options = {}) {
-  const { additive = false } = options;
+  const { additive = false, titleTextTarget = "title" } = options;
   legendSelection = null;
   selectedLayerId = layerId;
+  if (layerId === "title-base") {
+    selectedTitleTextTarget = titleTextTarget === "subtitle" ? "subtitle" : "title";
+  } else {
+    selectedTitleTextTarget = "title";
+  }
   if (additive) {
     if (selectedLayerIds.has(layerId)) {
       selectedLayerIds.delete(layerId);
@@ -3888,6 +4012,7 @@ function setLegendSelection(selection) {
   setActiveSidePanel("legendManagerPanel");
   selectedLayerId = "";
   selectedLayerIds = new Set();
+  selectedTitleTextTarget = "title";
   board.querySelectorAll("[data-layer-id]").forEach((element) => {
     element.classList.remove("is-selected");
   });
@@ -4567,12 +4692,29 @@ function updateQuickDeleteButton() {
   if (!toolbarDeleteButton) {
     return;
   }
+  if (isSubtitleSelectionActive()) {
+    toolbarDeleteButton.disabled = false;
+    return;
+  }
   if (legendSelection) {
     toolbarDeleteButton.disabled = true;
     return;
   }
   const hasDeletableSelection = getSelectedLayers().some((layer) => canDeleteLayer(layer));
   toolbarDeleteButton.disabled = !hasDeletableSelection;
+}
+
+function clearSelectedSubtitle() {
+  if (!isSubtitleSelectionActive()) {
+    return false;
+  }
+
+  pushHistory();
+  subtitleInput.value = "";
+  syncBaseTexts();
+  renderLayers();
+  refreshSelectedControls();
+  return true;
 }
 
 function copyCurrentSelection() {
@@ -4887,9 +5029,16 @@ function refreshSelectedControls() {
   if (isMultiSelection) {
     selectionHint.textContent = `${selectedLayers.length} elements selectionnes sur la planche.`;
   } else {
-    selectionHint.textContent = isLocked
-    ? `Element selectionne : ${getLayerLabel(layer)} (verrouille).`
-    : `Element selectionne : ${getLayerLabel(layer)}.`;
+    const subtitleSelection = layer.id === "title-base" && isSubtitleSelectionActive();
+    if (subtitleSelection) {
+      selectionHint.textContent = isLocked
+        ? "Element selectionne : Sous-titre (verrouille)."
+        : "Element selectionne : Sous-titre.";
+    } else {
+      selectionHint.textContent = isLocked
+        ? `Element selectionne : ${getLayerLabel(layer)} (verrouille).`
+        : `Element selectionne : ${getLayerLabel(layer)}.`;
+    }
   }
 
   if (isMultiSelection && resizeTargetLayers.length) {
@@ -4911,7 +5060,7 @@ function refreshSelectedControls() {
   if (isMultiSelection) {
     selectedText.value = "";
   } else if (layer.id === "title-base") {
-    selectedText.value = titleInput.value;
+    selectedText.value = isSubtitleSelectionActive() ? subtitleInput.value : titleInput.value;
   } else if (layer.id === "source-base") {
     selectedText.value = sourceInput.value;
   } else if (layer.type === "north") {
@@ -4926,9 +5075,12 @@ function refreshSelectedControls() {
     selectedText.value = layer.label || "";
   }
 
-  const styleState = isMultiSelection && textStyleTargetLayers.length
-    ? getTextStyleState(textStyleTargetLayers[0].id)
-    : getTextStyleState(layer.id);
+  const subtitleSelection = !isMultiSelection && layer.id === "title-base" && isSubtitleSelectionActive();
+  const styleState = subtitleSelection
+    ? getSubtitleStyleState()
+    : (isMultiSelection && textStyleTargetLayers.length
+      ? getTextStyleState(textStyleTargetLayers[0].id)
+      : getTextStyleState(layer.id));
   const shapeStyleState = !isMultiSelection ? getShapeStyleState(layer.id) : null;
   selectedFontSize.value = String(styleState?.fontSize || 28);
   selectedTextColor.value = styleState?.textColor || "#000000";
@@ -4947,12 +5099,12 @@ function refreshSelectedControls() {
   selectedText.disabled = isMultiSelection || !isEditable || isLocked || layer.type === "map" || layer.type === "picto";
   selectedFontSize.disabled = !isTextStyleEditable;
   selectedTextColor.disabled = !isTextStyleEditable;
-  selectedTextBackground.disabled = !(isTextStyleEditable || isShapeStyleEditable);
-  selectedTextBorderColor.disabled = !isTextStyleEditable;
+  selectedTextBackground.disabled = subtitleSelection || !(isTextStyleEditable || isShapeStyleEditable);
+  selectedTextBorderColor.disabled = subtitleSelection || !isTextStyleEditable;
   selectedPictoSize.disabled = !pictoSizeTargetLayers.length;
-  toggleTransparentBorderButton.disabled = !isTextStyleEditable;
+  toggleTransparentBorderButton.disabled = subtitleSelection || !isTextStyleEditable;
   selectedFontFamily.disabled = !isTextStyleEditable;
-  selectedRotation.disabled = !isRotationEditable;
+  selectedRotation.disabled = subtitleSelection || !isRotationEditable;
   legendColumns.value = "1";
   legendSymbolSize.value = "20";
   legendColumns.disabled = true;
@@ -4967,11 +5119,19 @@ function refreshSelectedControls() {
   } else {
     updateTextStyleButtons(styleState, !isTextStyleEditable);
   }
-  selectedWidth.disabled = !resizeTargetLayers.length || hasOnlyPictoResizeTargets;
-  selectedHeight.disabled = !resizeTargetLayers.length || hasOnlyPictoResizeTargets;
+  if (subtitleSelection) {
+    selectedWidth.disabled = true;
+    selectedHeight.disabled = true;
+    toggleTransparentBackgroundButton.disabled = true;
+    toggleTransparentBorderButton.disabled = true;
+  }
+  selectedWidth.disabled = subtitleSelection || !resizeTargetLayers.length || hasOnlyPictoResizeTargets;
+  selectedHeight.disabled = subtitleSelection || !resizeTargetLayers.length || hasOnlyPictoResizeTargets;
   bringForwardButton.disabled = isMultiSelection || !isEditable || isLocked;
   sendBackwardButton.disabled = isMultiSelection || !isEditable || isLocked;
-  deleteLayerButton.disabled = isMultiSelection ? !selectedLayers.some((selected) => canDeleteLayer(selected)) : !isDeletable;
+  deleteLayerButton.disabled = subtitleSelection
+    ? false
+    : (isMultiSelection ? !selectedLayers.some((selected) => canDeleteLayer(selected)) : !isDeletable);
   refreshLegendManagerControls(null, false, "");
 }
 
@@ -5596,6 +5756,9 @@ function beginElementInteraction(element, event) {
   }
 
   const pointerTarget = event.target instanceof Element ? event.target : element;
+  const titleTextTarget = layerId === "title-base" && pointerTarget?.closest("#boardSubtitle, .board-title-banner__text p")
+    ? "subtitle"
+    : "title";
   const resizeHandle = pointerTarget?.closest(".resize-handle");
   const resizeDirection = resizeHandle && element.contains(resizeHandle)
     ? resizeHandle.dataset.resize || "bottom-right"
@@ -5606,7 +5769,7 @@ function beginElementInteraction(element, event) {
 
   if (shouldAddToSelection && !resizeDirection) {
     suppressSelectionClickForLayerId = layerId;
-    selectLayer(layerId, { additive: true });
+    selectLayer(layerId, { additive: true, titleTextTarget });
     event.preventDefault();
     event.stopPropagation();
     return true;
@@ -5618,7 +5781,7 @@ function beginElementInteraction(element, event) {
 
   if (!(wasAlreadySelected && hadMultipleSelection)) {
     suppressSelectionClickForLayerId = layerId;
-    selectLayer(layerId);
+    selectLayer(layerId, { titleTextTarget });
   } else {
     board.querySelectorAll("[data-layer-id]").forEach((boardElement) => {
       boardElement.classList.toggle("is-selected", selectedLayerIds.has(boardElement.dataset.layerId));
@@ -5974,7 +6137,11 @@ function updateSelectedText(value) {
   pushHistory();
 
   if (layer.id === "title-base") {
-    titleInput.value = value;
+    if (isSubtitleSelectionActive()) {
+      subtitleInput.value = value;
+    } else {
+      titleInput.value = value;
+    }
     syncBaseTexts();
     renderLayers();
     return;
@@ -6063,6 +6230,20 @@ function updateSelectedTextStyle(nextStyle) {
   const sanitizedStyle = { ...nextStyle };
   if (typeof sanitizedStyle.fontSize === "number") {
     sanitizedStyle.fontSize = clamp(sanitizedStyle.fontSize, 4, 72);
+  }
+
+  if (
+    targetLayers.length === 1
+    && targetLayers[0].id === "title-base"
+    && isSubtitleSelectionActive()
+  ) {
+    delete sanitizedStyle.backgroundColor;
+    delete sanitizedStyle.bgTransparent;
+    delete sanitizedStyle.borderColor;
+    delete sanitizedStyle.borderTransparent;
+    pushHistory();
+    applySubtitleStyles(sanitizedStyle);
+    return;
   }
 
   pushHistory();
@@ -6162,6 +6343,10 @@ function updateSelectedPictoSize(value) {
 }
 
 function removeSelectedLayer() {
+  if (clearSelectedSubtitle()) {
+    return;
+  }
+
   const selectedLayers = getSelectedLayers();
   const deletableLayers = selectedLayers.filter((layer) => canDeleteLayer(layer));
   if (!deletableLayers.length) {
@@ -6492,6 +6677,7 @@ function resetWorkspace() {
   subtitleInput.value = "Sous-titre ou precision territoriale";
   sourceInput.value = "Source : a completer";
   northLabelInput.value = "N";
+  selectedTitleTextTarget = "title";
   legendSectionsState = [];
   applyBoardTemplate(DEFAULT_BOARD_TEMPLATE_ID, { pushToHistory: false, markModified: false, refreshUi: false });
   syncMapPlaceholderState();
@@ -8290,8 +8476,9 @@ toolbarPasteButton?.addEventListener("click", () => {
   }
 });
 toolbarDeleteButton?.addEventListener("click", () => {
+  const canDeleteSubtitle = isSubtitleSelectionActive();
   const hasDeletableSelection = !legendSelection && getSelectedLayers().some((layer) => canDeleteLayer(layer));
-  if (!hasDeletableSelection) {
+  if (!canDeleteSubtitle && !hasDeletableSelection) {
     updateStatusMessage("Astuce tactile : selectionnez d'abord un element sur la carte, puis touchez Suppr.", true);
     return;
   }
@@ -8460,7 +8647,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Delete" || event.key === "Backspace") {
     const selectedLayers = getSelectedLayers();
     const hasDeletableSelection = selectedLayers.some((layer) => canDeleteLayer(layer));
-    if (!hasDeletableSelection) {
+    if (!isSubtitleSelectionActive() && !hasDeletableSelection) {
       return;
     }
 
